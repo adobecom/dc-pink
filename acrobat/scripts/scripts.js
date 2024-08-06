@@ -117,13 +117,28 @@ if (hostname.endsWith('.ing')) {
   if (!canonEl?.href.endsWith('.html')) canonEl?.setAttribute('href', `${canonEl.href}.html`);
 }
 
-function loadStyles(paths) {
-  paths.forEach((path) => {
-    const link = document.createElement('link');
-    link.setAttribute('rel', 'stylesheet');
-    link.setAttribute('href', path);
+function loadLink(href, { as, callback, crossorigin, rel, fetchpriority } = {}) {
+  let link = document.head.querySelector(`link[href="${href}"]`);
+  if (!link) {
+    link = document.createElement('link');
+    link.setAttribute('rel', rel);
+    if (as) link.setAttribute('as', as);
+    if (crossorigin) link.setAttribute('crossorigin', crossorigin);
+    if (fetchpriority) link.setAttribute('fetchpriority', fetchpriority);
+    link.setAttribute('href', href);
+    if (callback) {
+      link.onload = (e) => callback(e.type);
+      link.onerror = (e) => callback(e.type);
+    }
     document.head.appendChild(link);
-  });
+  } else if (callback) {
+    callback('noop');
+  }
+  return link;
+}
+
+function loadStyle(href, callback) {
+  return loadLink(href, { rel: 'stylesheet', callback });
 }
 
 function addLocale(locale) {
@@ -279,7 +294,6 @@ const CONFIG = {
   // geoRouting: 'on',
   prodDomains: ['www.adobe.com', 'business.adobe.com', 'helpx.adobe.com'],
   stageDomainsMap: {
-    'www.adobe.com': 'www.stage.adobe.com',
     'business.adobe.com': 'business.stage.adobe.com',
     'helpx.adobe.com': 'helpx.stage.adobe.com',
     'blog.adobe.com': 'blog.stage.adobe.com',
@@ -307,7 +321,8 @@ if (IMS_GUEST) {
     client_id: CLIENT_ID,
     scope: 'AdobeID,openid,gnav,additional_info.roles,read_organizations,pps.read',
 
-    guest_token_force_refresh: true,
+    enableGuestAccounts: true,
+    enableGuestTokenForceRefresh: true,
 
     api_parameters: { check_token: { guest_allowed: true } },
 
@@ -342,8 +357,14 @@ replaceDotMedia(document);
 
 // Default to loading the first image as eager.
 (async function loadLCPImage() {
-  const lcpImg = document.querySelector('img');
-  lcpImg?.setAttribute('loading', 'eager');
+  const marquee = document.querySelector('.marquee'); // first marquee only
+  if (marquee) {
+    const index = window.browser.isMobile ? 1 : 3;
+    const selectorBG = `.marquee > div:nth-child(1) > div:nth-of-type(${index}) img`;
+    const selectorFG = '.marquee > div:nth-child(2) img';
+    marquee.querySelector(selectorBG)?.setAttribute('loading', 'eager');
+    marquee.querySelector(selectorFG)?.setAttribute('loading', 'eager');
+  }
 }());
 
 /*
@@ -359,7 +380,13 @@ const { ietf } = getLocale(locales);
   const mobileAppBlock = document.querySelector('[class*="mobile-widget"]');
   const hasMobileAppBlock = window.browser.isMobile && document.querySelector('meta[name="mobile-widget"]')?.content === 'true';
 
-  if (hasMobileAppBlock) {
+  if (hasMobileAppBlock && mobileAppBlock) {
+    mobileAppBlock.dataset.verb = mobileAppBlock.classList.value.replace('mobile-widget', '').trim();
+    document.body.classList.add('dc-bc');
+    mobileAppBlock.removeAttribute('class');
+    mobileAppBlock.id = 'mobile-widget';
+    const { default: dcConverterq } = await import('../blocks/mobile-widget/mobile-widget.js');
+    await dcConverterq(mobileAppBlock);
     widgetBlock?.remove();
   } else {
     mobileAppBlock?.remove();
@@ -395,7 +422,7 @@ const { ietf } = getLocale(locales);
 
   // Setup CSP
   (async () => {
-    if (document.querySelector('meta[name="dc-widget-version"]')) {
+    if (document.querySelector('meta[name="dc-widget-version"]') && !hasMobileAppBlock) {
       const { default: ContentSecurityPolicy } = await import('./contentSecurityPolicy/csp.js');
       ContentSecurityPolicy();
     }
@@ -408,12 +435,24 @@ const { ietf } = getLocale(locales);
   if (!document.getElementById('inline-milo-styles')) {
     const paths = [`${miloLibs}/styles/styles.css`];
     if (STYLES) { paths.push(STYLES); }
-    loadStyles(paths);
+    paths.forEach((css) => loadStyle(css));
+  }
+
+  // Configurable preloads
+  const preloads = document.querySelector('meta[name="preloads"]')?.content;
+  if (preloads) {
+    preloads.split(',').forEach((x) => {
+      const link = x.trim().replace('$MILOLIBS', miloLibs);
+      if (link.endsWith('.js')) {
+        loadLink(link, { as: 'script', rel: 'preload', crossorigin: 'anonymous' });
+      } else if (link.endsWith('.css')) {
+        loadStyle(link);
+      }
+    });
   }
 
   // Import base milo features and run them
   const { loadArea, setConfig, loadLana, getMetadata, loadIms } = await import(`${miloLibs}/utils/utils.js`);
-
   addLocale(ietf);
 
   if (getMetadata('commerce')) {
@@ -422,20 +461,19 @@ const { ietf } = getLocale(locales);
   }
 
   setConfig({ ...CONFIG, miloLibs });
-  loadLana({ clientId: 'dxdc', tags: 'Cat=DC_Milo' });
 
-  // get event back form dc web and then load area
+  loadIms().then(() => {
+    const imsIsReady = new CustomEvent('IMS:Ready');
+    window.dispatchEvent(imsIsReady);
+  });
+
+  loadLana({ clientId: 'dxdc', tags: 'DC_Milo' });
+
   await loadArea(document, false);
 
   // Setup Logging
   const { default: lanaLogging } = await import('./dcLana.js');
   lanaLogging();
-
-  // IMS Ready
-  loadIms().then(() => {
-    const imsIsReady = new CustomEvent('IMS:Ready');
-    window.dispatchEvent(imsIsReady);
-  });
 
   // DC Hosted Ready...
   const dcHostedReady = setInterval(() => {

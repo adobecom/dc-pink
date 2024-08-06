@@ -1,9 +1,10 @@
+#mobile-widget,
 .mobile-widget {
   display: flex;
   background-color: #fc6767;
   min-height: 570px;
   margin-bottom: 50px;
-  font-family: adobe-clean,'Source Sans Pro',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-family: 'Adobe Clean', adobe-clean,'Source Sans Pro',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
 
 .mobile-widget_wrapper {
@@ -176,11 +177,6 @@
 @media (min-width: 295px) and (max-width: 767.9px) {
   .mobile-widget_title-wrapper {
     padding-top: 0;
-  }
-
-  .mobile-widget_heading {
-    font-size: 28px;
-    line-height: 35px
   }
 
   .mobile-widget_dropzone {
